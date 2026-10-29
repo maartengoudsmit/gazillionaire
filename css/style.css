@@ -1,6 +1,6 @@
 :root { --gray:#c0c0c0; --dark:#808080; --navy:#000080; --hi:#fff; }
 * { box-sizing: border-box; }
-html, body { margin:0; height:100%; background:#000; color:#000; font-family:"MS Sans Serif","Segoe UI",Tahoma,Arial,sans-serif; overflow:hidden; }
+html, body { margin:0; height:100%; background:#000; color:#000; font-family:"MS Sans Serif","Segoe UI",Tahoma,Arial,sans-serif; overflow:hidden; overscroll-behavior:none; touch-action:manipulation; -webkit-tap-highlight-color:transparent; -webkit-text-size-adjust:100%; }
 body { display:flex; flex-direction:column; align-items:center; justify-content:center; }
 #frame { position:fixed; left:50%; top:calc(50% - 12px); width:640px; height:480px; transform-origin:center center; }
 #stage { position:absolute; inset:0; width:640px; height:480px; background:#000 center/640px 480px no-repeat; overflow:hidden; font-size:12px; image-rendering:auto; outline:none; user-select:none; }
@@ -26,7 +26,8 @@ table.t td { border-bottom:1px solid #ddd; padding:1px 4px; white-space:nowrap; 
 table.t tr.sel td { background:#000080; color:#fff; }
 table.t tr:hover:not(.sel) td { background:#e8e8ff; }
 table.t td.n, table.t th.n { text-align:right; }
-input[type=text], input[type=number] { font:12px "MS Sans Serif",Arial,sans-serif; border:2px solid; border-color:#808080 #fff #fff #808080; padding:2px 4px; background:#fff; }
+input[type=text], input[type=number] { font-size:16px; font-family:inherit; }
+input[type=text], input[type=number] { font:16px "MS Sans Serif",Arial,sans-serif; border:2px solid; border-color:#808080 #fff #fff #808080; padding:2px 4px; background:#fff; }
 .hdr { position:absolute; left:0; right:0; top:0; height:30px; background:rgba(0,0,0,.72); color:#ff0; font:bold 12px "MS Sans Serif",Arial,sans-serif; display:flex; align-items:center; gap:14px; padding:0 8px; white-space:nowrap; }
 .hdr b { color:#fff; }
 .stat { position:absolute; color:#fff; text-shadow:1px 1px 0 #000; font-weight:bold; }
@@ -35,3 +36,9 @@ input[type=text], input[type=number] { font:12px "MS Sans Serif",Arial,sans-seri
 .good { color:#060; font-weight:bold; } .bad { color:#a00; font-weight:bold; }
 video { display:block; }
 @media (max-width:660px), (max-height:520px) { #bar span { display:none; } }
+/* phones and tablets: use the whole screen, bigger touch targets */
+body.small #bar { display:none; }
+body.touch .btn { min-height:30px; }
+body.touch .btn.s { height:34px; min-width:84px; }
+body.touch table.t td { padding-top:6px; padding-bottom:6px; }
+body.touch .pt { -webkit-overflow-scrolling:touch; }

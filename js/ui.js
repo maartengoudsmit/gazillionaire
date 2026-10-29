@@ -204,7 +204,8 @@ function mainMenu() {
     ['Facilities', facScreen], ['File Options', fileScreen]
   ];
   items.forEach((it, i) => {
-    const b = btn(stage, it[0], async () => { await it[1](); }, { left: (14 + (i % 4) * 155) + 'px', top: (214 + Math.floor(i / 4) * 31) + 'px', width: '150px', height: '27px' });
+    const T = document.body.classList.contains('touch');
+    const b = btn(stage, it[0], async () => { await it[1](); }, { left: (14 + (i % 4) * 155) + 'px', top: (212 + Math.floor(i / 4) * (T ? 37 : 31)) + 'px', width: '150px', height: T ? '34px' : '27px' });
     if (it[0] === 'Planet Special' && !specialDone(c)) b.style.color = '#006000';
   });
 }
