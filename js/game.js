@@ -705,7 +705,7 @@ function runSpecial(c, kind, arg) {
       return [{ kind: 'gamble', img: 'dealer1', title: 'Casino Dealer', max }];
     }
     case 'queg': {
-      const g = RI(Math.max(3, 6 - 0), NG - 1), n = Math.min(cargoMax(c), RI(8, 40) + c.shipIdx * 20);
+      const g = RI(3, NG - 1), free = cargoMax(c) - cargoTons(c), n = Math.max(1, Math.min(free > 0 ? free : cargoMax(c), RI(8, 40) + c.shipIdx * 20));
       const mp = quote(p, g), price = Math.round(mp * R(0.4, 0.65));
       return [{ kind: 'queg', img: 'cornu1', title: 'Lady Cornucopia', g, n, price, mp }];
     }

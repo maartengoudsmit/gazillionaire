@@ -718,8 +718,8 @@ function graphScreen() {
     } else {
       g.fillStyle = '#fff'; g.fillText('Company history: net worth over the last 20 weeks', 10, 14);
       let mx = 1, mn = 0; G.co.forEach(c => c.hist.forEach(v => { mx = Math.max(mx, v); mn = Math.min(mn, v); }));
-      G.co.forEach((c, i) => { g.strokeStyle = colors[i]; g.lineWidth = 2; g.beginPath(); c.hist.forEach((v, k) => { const x = 40 + k * (540 / Math.max(1, c.hist.length - 1)), y = 320 - (v - mn) / (mx - mn || 1) * 280; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.fillStyle = colors[i]; g.fillText(c.name.slice(0, 16), 40 + i * 82, 332); });
-      g.fillStyle = '#fff'; g.fillText(fmt(mx), 4, 40); g.fillText(fmt(mn), 4, 320);
+      G.co.forEach((c, i) => { g.strokeStyle = colors[i]; g.lineWidth = 2; g.beginPath(); c.hist.forEach((v, k) => { const x = 40 + k * (540 / Math.max(1, c.hist.length - 1)), y = 300 - (v - mn) / (mx - mn || 1) * 260; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.fillStyle = colors[i]; g.fillText(c.name.slice(0, 20), 40 + (i % 4) * 140, 322 + Math.floor(i / 4) * 14); });
+      g.fillStyle = '#fff'; g.fillText(fmt(mx), 4, 40); g.fillText(fmt(mn), 4, 300);
     }
   }
   ['Net Worth', 'Market Strength', 'Company History'].forEach((t, i) => btn(s.bd, t, () => { cur = i; draw(); }, { left: (i * 150) + 'px', top: '0', width: '144px', height: '26px' }));
