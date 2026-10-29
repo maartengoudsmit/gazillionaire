@@ -311,6 +311,7 @@ function travel(destIdx) {
     out.events.push({ kind: 'msg', img: 'crew', title: 'Union Boss', snd: 'bad6', bad: true,
       lines: ['Your crew goes on STRIKE because you have not paid them! To settle the strike you are forced to pay ' + fmt(back) + ' kubars in back wages and raise their weekly salary by 10 kubars per person.'] });
   }
+  c.shield = c.insured;   // insurance this trip also protects against rivals' dirty tricks
   out.events.push({ kind: 'depart', from: a, to: b, hours: Math.round(hours(c, a, b) * 10) / 10 });
   // costs
   const wc = weeklyCosts(c);
@@ -348,6 +349,7 @@ function travel(destIdx) {
   record();
   checkEnd();
   c.luck *= 0.8;
+  if (G.pending && G.pending.length) out.events.push(...G.pending.splice(0));
   maybeAuction(out.events);
   return out;
 }
@@ -402,115 +404,243 @@ function genNews() {
 }
 
 // ---------- AI ----------
-function aiNoise(c) { return 1 + R(-0.35, 0.35) / (0.6 + c.int * 0.5); }
+// Six personalities (PERSONA) and five intelligence levels. IQ changes how well a rival
+// perceives prices, whether it accounts for price impact and costs, how it manages cash and debt,
+// whether it heeds weather/news warnings, and how often it blunders.
+const PERSONA = {
+  //            cash: share of cash spent on cargo   ship/eng: cash multiple needed to upgrade
+  //            ins: insurance appetite   debt: willingness to borrow   lever: max share of credit limit used
+  banker:     { cash: 0.62, ship: 3.4, eng: 14,  ins: 1.0, debt: 0.0, lever: 0.15, save: 0.30, stock: 0.12, tick: 0.75, goods: 'safe' },
+  gambler:    { cash: 0.95, ship: 2.3, eng: 10,  ins: 0.0, debt: 0.5, lever: 0.55, save: 0,    stock: 0.05, tick: 0.65, goods: 'dear', gamble: 1, dirty: 1 },
+  host:       { cash: 0.78, ship: 2.8, eng: 12,  ins: 0.7, debt: 0.2, lever: 0.30, save: 0.05, stock: 0.05, tick: 0.88, goods: 'cheap', ads: 1 },
+  expander:   { cash: 0.88, ship: 1.7, eng: 8,   ins: 0.7, debt: 1.0, lever: 0.75, save: 0,    stock: 0,    tick: 0.72, goods: 'any' },
+  speedster:  { cash: 0.82, ship: 2.6, eng: 3.5, ins: 0.6, debt: 0.3, lever: 0.40, save: 0,    stock: 0.05, tick: 0.72, goods: 'any', race: 1 },
+  speculator: { cash: 0.75, ship: 3.0, eng: 12,  ins: 0.6, debt: 0.3, lever: 0.40, save: 0.10, stock: 0.50, tick: 0.72, goods: 'any' }
+};
+const AI_HAZ_NEWS = {
+  rebels: 'is unlucky enough to bump into the Chichi Bobo Rebels.', darleen: 'falls into a trap set by the Darleen Smugglers.',
+  bandits: 'has its cargo stolen by the Baid-Rowel Bandits.', moog: 'runs smack into a band of rowdy Mooglers.',
+  hungo: 'is forced to hand over its cargo to the Hungo Warriors.', cylet: 'falls prey to the Cylet Mind Buggers.',
+  lippo: 'suffers major damage when a giant Lippo Jungie slams into its ship.', wicky: 'falls victim to the evil Wicky Wicks.',
+  pirates: 'is robbed by a band of Space Pirates.', meteor: 'gets caught in a Meteor Storm.', solar: 'stumbles into a deadly Solar Storm.',
+  hurr: 'gets pummeled in a Space Hurricane.', typhoon: 'suffers major damage in a Stellar Typhoon.',
+  dexxy: 'runs smack into a cloud of Dexxy Gas.', mippi: 'finds itself bogged down in a patch of Mippi Weeds.'
+};
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.15;
+const aiSd = c => 0.5 * (1 - (c.int - 1) / 4) + 0.04;          // price-perception error: 54% at IQ1, 4% at IQ5
 
 function aiMove(c) {
   if (c.bankrupt) return;
-  const from = G.planets[c.loc], to = G.planets[c.dest];
-  if (c.loc !== c.dest) {
-    // trip costs
-    weeklyCosts(c);
-    c.fuel -= Math.min(c.fuel, fuelUse(c, from, to));
-    c.cash -= cargoValue(c) * (c.expRate + c.impRate);
-    c.loc = c.dest;
-    const wait = Math.round(passMax(c) * R(0.5, 1.2));
-    const ref = refFare(c, from, to);
-    const acc = clamp(1.5 - c.ticket / ref, 0, 1);
-    const n = Math.min(passMax(c), Math.round(wait * acc));
-    c.cash += n * c.ticket * (1 - c.passTax);
-    pushPlanetFee(c, to);
-    // hazards (AI take a chance of loss)
-    if (Math.random() < 0.1 && !c.insured) {
-      const h = pick(HAZARDS);
-      const d = shipValue(c) * R(0.03, 0.09);
-      if (h.kind === 'steal' && cargoTons(c) > 0) { c.cargo.fill(0); c.paid.fill(0); G.aiNews.push(c.name + ' ' + pick(['is robbed by a band of Space Pirates.', 'gets caught in a Meteor Storm.', 'has its cargo stolen by the Baid-Rowel Bandits.'])); }
-      else { c.cash -= d; if (Math.random() < 0.4) G.aiNews.push(c.name + ' ' + pick(['gets caught in a Meteor Storm.', 'stumbles into a deadly Solar Storm.', 'runs smack into a cloud of Dexxy Gas.'])); }
-    }
-  }
+  const P = PERSONA[c.style] || PERSONA.expander, q = (c.int - 1) / 4;
+  if (c.loc !== c.dest) aiArrive(c, P, q);
   c.insured = false;
+  aiBusiness(c, P, q);
+  aiPlan(c, P, q);
+  if (c.tu > c.tuLimit) c.tuLimit = Math.ceil(c.tu * 1.3 / 1000) * 1000;
+  if (netWorth(c) < -c.tuLimit * 0.5) { c.bankrupt = true; G.aiNews.push(c.name + ' Bankrupts!!!'); c.cargo.fill(0); }
+}
+
+function aiArrive(c, P, q) {
+  const from = G.planets[c.loc], to = G.planets[c.dest];
+  weeklyCosts(c);
+  c.fuel -= Math.min(c.fuel, fuelUse(c, from, to));
+  c.cash -= cargoValue(c) * (c.expRate + c.impRate);
+  c.loc = c.dest;
+  const wait = Math.round(passMax(c) * R(0.5, 1.2) * (1 + 0.8 * adPassEff(c)));
+  const acc = clamp(1.5 - c.ticket / refFare(c, from, to), 0, 1);
+  const n = Math.min(passMax(c), Math.round(wait * acc));
+  c.cash += n * c.ticket * (1 - c.passTax);
+  c.adPass = 0;
+  pushPlanetFee(c, to);
+  // hazards: same odds as the player, including the dangerous areas in the news and weather
+  const hid = hazardFor(c, c.loc);
+  if (hid) {
+    const h = HAZARDS.find(x => x.id === hid), val = shipValue(c);
+    let loss = 0;
+    if (h.kind === 'steal' || h.kind === 'stealdmg') { const lost = cargoValue(c); c.cargo.fill(0); c.paid.fill(0); loss += lost; if (c.insured) c.cash += lost; }
+    if (h.kind !== 'steal') { const dmg = val * R(0.03, 0.1); loss += dmg; if (!c.insured) c.cash -= dmg; }
+    if (c.insured) loss = 0;
+    if (loss > 0 && Math.random() < 0.6) G.aiNews.push(c.name + ' ' + (AI_HAZ_NEWS[hid] || 'runs into trouble near ' + to.id + '.'));
+  }
+}
+
+function aiBusiness(c, P, q) {
   const p = planetOf(c);
-  // pay crew
-  if (c.cash > c.owed) { c.cash -= c.owed; c.owed = 0; } else { c.tu += c.owed; c.owed = 0; }
-  // sell cargo
+  const nw = netWorth(c);
+  c.tuLimit = Math.max(c.tuLimit, 25000 + 0.25 * Math.max(0, nw));
+  c.znLimit = Math.max(c.znLimit, 25000 + 0.20 * Math.max(0, nw));
+  // crew: careless low-IQ companies sometimes skip payday and risk a strike
+  if (c.int <= 2 && Math.random() < 0.25) {
+    if (c.owed > crewN(c) * c.salary * 2 && Math.random() < 0.5) {
+      c.cash -= c.owed * 1.3; c.owed = 0; c.salary += 10;
+      G.aiNews.push(c.name + ' has labor trouble and is forced to raise crew wages.');
+    }
+  } else { const pay = Math.min(c.owed, Math.max(0, c.cash)); c.cash -= pay; c.owed -= pay; if (c.owed > 0) { c.tu += c.owed; c.owed = 0; } }
+  // sell cargo. Sharper rivals hold for a better price a little longer.
   for (let g = 0; g < NG; g++) {
     if (c.cargo[g] > 0) {
       const price = quote(p, g);
-      if (price >= c.paid[g] * 1.01 || c.holdWeeks >= 2) sellGoods(c, p, g, c.cargo[g]);
+      if (price >= c.paid[g] * (c.int >= 4 ? 1.02 : 1.0) || c.holdWeeks >= (c.int >= 3 ? 3 : 2)) sellGoods(c, p, g, c.cargo[g]);
     }
   }
   c.holdWeeks = cargoTons(c) > 0 ? c.holdWeeks + 1 : 0;
-  // finances
   if (c.cash < 0) { c.tu += -c.cash + 1000; c.cash = 1000; }
-  const reserve = shipValue(c) * 0.15 + crewN(c) * c.salary * 2;
-  if (c.cash > reserve * 2 && (c.tu + c.zn) > 0) {
-    const pay = Math.min(c.tu, c.cash - reserve * 1.5); c.tu -= pay; c.cash -= pay;
-    const pz = Math.min(c.zn, c.cash - reserve * 1.5); if (pz > 0) { c.zn -= pz; c.cash -= pz; }
+  // personality actions
+  if (P.gamble && p.id === 'Tilo' && c.cash > 5000) {
+    const bet = Math.floor(c.cash * 0.05);
+    if (Math.random() < 0.47) { c.cash += bet; if (bet > 5000) G.aiNews.push(c.name + ' hits the jackpot at a Tilo casino, winning ' + fmt(bet) + ' kubars!'); }
+    else { c.cash -= bet; if (bet > 5000) G.aiNews.push(c.name + ' drops ' + fmt(bet) + ' kubars at the Tilo casinos.'); }
   }
-  if (c.cash < reserve && c.tu < c.tuLimit * 0.8 && c.int >= 2) { const b = Math.min(c.tuLimit * 0.8 - c.tu, reserve * 1.5); c.tu += b; c.cash += b; }
-  if (c.cash > reserve * 6 && c.tu === 0 && c.zn === 0 && c.style === 'steady') { const s = c.cash * 0.2; c.save += s; c.cash -= s; }
-  if (c.tu > c.tuLimit * 0.95) { c.tuLimit += 25000; }
-  // fuel
-  const need = maxFuelUse(c);
-  if (c.fuel < need * 1.5) { const buy = Math.min(tankMax(c) - c.fuel, Math.floor(Math.max(0, c.cash) / fuelPrice(c, p))); if (buy > 0) { c.fuel += buy; c.cash -= buy * fuelPrice(c, p); } }
+  if (P.gamble && Math.random() < 0.05 && c.cash > 20000) {         // a Quist-style "sure thing"
+    const stake = Math.floor(c.cash * 0.2);
+    if (Math.random() < 0.1) { c.cash += stake * 9; G.aiNews.push(c.name + ' makes a killing on a risky venture.'); }
+    else { c.cash -= stake; }
+  }
+  if (P.dirty && c.int >= 2 && Math.random() < 0.05 + 0.03 * q) aiSabotage(c);
+  // stock exchange: read the trend (clearly for sharp IQs, hazily for dull ones); cashing out before a crash needs IQ 4+
+  const sh = c.shares[p.i], st = p.stock, tr = st.trend + gauss() * 0.06 * (1 - q);
+  if (sh.n > 0 && (tr < -0.02 || st.v > sh.paid * 2.2 || (c.int >= 4 && st.v < 25))) {
+    const gain = sellStock(c, p.i, sh.n);
+    if (P.stock >= 0.5 && gain && Math.random() < 0.3) G.aiNews.push(c.name + ' ' + (st.v > sh.paid ? 'manages to make a tidy sum on its stock investments.' : 'is squeezed by poor stock investments.'));
+  }
+  const stockFrac = Math.min(0.5, P.stock * (0.4 + 0.6 * q));
+  if (stockFrac > 0.02 && tr > 0.03 && st.v > 15 && c.boughtStockWeek !== G.week && c.cash > 50000 && (c.int >= 3 || Math.random() < 0.3)) {
+    const n = Math.floor(c.cash * stockFrac / (st.v * 1.01));
+    if (n > 0) { buyStock(c, p.i, n); if (P.stock >= 0.5 && Math.random() < 0.25) G.aiNews.push(c.name + ' pumps money into the stock market.'); }
+  }
+  // finances: repay when comfortable, park surplus (bankers)
+  const reserve = shipValue(c) * 0.12 + crewN(c) * c.salary * 3;
+  const repayAt = c.int >= 3 ? 1.4 : 3;
+  if (c.cash > reserve * repayAt) {
+    const pay = Math.min(c.tu, c.cash - reserve); if (pay > 0) { c.tu -= pay; c.cash -= pay; }
+    const pz = Math.min(c.zn, c.cash - reserve); if (pz > 0) { c.zn -= pz; c.cash -= pz; }
+  }
+  if (P.save > 0 && c.tu <= 0 && c.zn <= 0 && c.cash > reserve * 4) {
+    const s = (c.cash - reserve * 2) * P.save; c.save += s; c.cash -= s;
+    if (P.save >= 0.3 && Math.random() < 0.05) G.aiNews.push(c.name + ' quietly adds to its savings account at the Trader\'s Union.');
+  }
+  // fuel: sharper rivals buy when it's cheap
+  const need = maxFuelUse(c), fp = fuelPrice(c, p);
+  const cheap = p.fuel <= 36, want = c.int >= 3 ? (cheap ? tankMax(c) : need * 1.6) : need * 1.5;
+  if (c.fuel < want) { const buy = Math.min(tankMax(c) - c.fuel, Math.floor(Math.max(0, c.cash) / fp)); if (buy > 0) { c.fuel += buy; c.cash -= buy * fp; } }
   c.fuel = Math.min(c.fuel, tankMax(c));
-  // upgrades
-  const ns = nextShip(c);
-  if (ns && c.cash > ns[2] * (c.style === 'bold' ? 2.6 : 3.2) && Math.random() < 0.35 + c.int * 0.1) {
-    const trade = SHIPS[c.shipIdx][2] * 0.5;
-    c.cash -= ns[2] - trade; c.shipIdx++; c.fuel = tankMax(c); bumpLimits(c); calcTier();
+  // upgrades. IQ 4+ only buys a bigger ship when the current one is actually full (the market can absorb more).
+  const ns = nextShip(c), full = (c.fill || 0) > 0.85;
+  if (ns && c.cash + c.save * 0.9 > ns[2] * P.ship && (c.int < 4 || full) && Math.random() < 0.3 + c.int * 0.1) {
+    const cost = ns[2] - SHIPS[c.shipIdx][2] * 0.5;
+    if (c.cash < cost) { const w = Math.min(c.save, cost - c.cash); c.save -= w; c.cash += w; }
+    c.cash -= cost; c.shipIdx++; c.fuel = tankMax(c); bumpLimits(c); calcTier(); c.fill = 0;
     G.aiNews.push(c.name + ' purchases a new ' + ns[1] + '-ton ship for ' + fmt(ns[2]) + ' kubars from the Trader\'s Union.');
   }
-  if (c.cash > engineCost(c) * 12 && c.engine < 6 + c.shipIdx * 3 && Math.random() < 0.15) { c.cash -= engineCost(c); c.engine++; G.aiNews.push(c.name + ' travels to Pyke to purchase a new faster ' + c.engine + ' kuarp engine.'); }
-  if (Math.random() < 0.06) {
-    const d = Math.round(Math.max(0, netWorth(c)) * R(0.02, 0.05));
-    if (Math.random() < 0.5) { c.cash += d; G.aiNews.push(c.name + pick([' reaps record profits as it transforms into a lean, mean, fighting machine!', ' cuts a deal with a foreign merchant.', ' manages to make a tidy sum on its stock investments.'])); }
-    else { c.cash -= d; G.aiNews.push(c.name + pick([' suffers as profits fall due to a serious miscalculation in the commodities market.', ' forgets to pay its taxes.', ' suffers from bad management decisions.'])); }
+  if (c.cash > engineCost(c) * P.eng && c.engine < 6 + c.shipIdx * 3 + (P.race ? 4 : 0) && Math.random() < (P.race ? 0.5 : 0.15)) {
+    c.cash -= engineCost(c); c.engine++;
+    G.aiNews.push(c.name + (P.race ? ' hires Teeter to turbocharge it\'s engine.' : ' travels to Pyke to purchase a new faster ' + c.engine + ' kuarp engine.'));
   }
-  // pick destination and buy cargo
+}
+
+// Hapa Hauling's dirty tricks: sabotage whoever is winning (possibly the player).
+function aiSabotage(c) {
+  const lead = G.co.filter(x => x !== c && !x.bankrupt).sort((a, b) => netWorth(b) - netWorth(a))[0];
+  if (!lead || netWorth(lead) < netWorth(c) * 1.25 || lead.cash < 5000) return;
+  const fee = Math.round(Math.max(1000, netWorth(c) * 0.005));
+  if (c.cash < fee * 3) return;
+  c.cash -= fee;
+  if (lead.human && lead.shield) return;
+  const dmg = Math.round(Math.min(lead.cash * R(0.03, 0.06), netWorth(lead) * 0.05));
+  lead.cash -= dmg;
+  const txt = pick([' suffers a major financial loss as important trade secrets are leaked to the press. The company\'s net worth falls ' + fmt(dmg) + ' kubars overnight.',
+    ' suffers mysterious engine troubles. As a result, the company is out ' + fmt(dmg) + ' kubars for repairs.',
+    '\'s ship is vandalized by a gang of thugs. The repairs cost ' + fmt(dmg) + ' kubars.']);
+  G.aiNews.push(lead.name + txt);
+  if (lead.human) { (G.pending = G.pending || []).push({ kind: 'msg', img: 'hapa', title: 'A Hapa Jillo Mafioso', snd: 'hapa', bad: true,
+    lines: ['Someone has been busy behind your back. ' + lead.name + txt,'You have a feeling the Hapa Jillo Crime Syndicate is behind this. They don\'t like it when somebody gets too far ahead of the pack. Buying Voyager\'s Insurance protects you from this kind of mischief.'] }); }
+}
+
+function aiPlan(c, P, q) {
+  const p = planetOf(c), sd = aiSd(c);
+  const smart = c.int >= 3;
+  // spending power: cash, then savings, then (if willing) credit
+  let cashFrac = clamp(P.cash + (c.int <= 2 ? 0.1 : 0) - (c.int >= 4 ? 0.06 : 0), 0.3, 0.97);
+  if (c.save > 0 && c.cash < shipValue(c) * 0.5) { const w = c.save * 0.8; c.cash += w; c.save -= w; }
+  const room = Math.max(0, c.tuLimit * clamp(P.lever + [0.1, 0, -0.2, -0.3, -0.4][c.int - 1], 0.05, 0.9) - c.tu);
+  const blunder = [0.18, 0.09, 0.03, 0, 0][c.int - 1];
+  const wPref = g => P.goods === 'safe' ? (g >= 2 && g <= 13 ? 1 : 0.7) : P.goods === 'dear' ? (g >= 10 ? 1.25 : 0.9) : P.goods === 'cheap' ? (g <= 11 ? 1.2 : 0.85) : 1;
+
+  const evaluate = (d, budget) => {
+    const total = cargoMax(c);
+    const noise = Array.from({ length: NG }, () => 1 + gauss() * sd);
+    const buy = Array(NG).fill(0);
+    let cash = budget, space = total, profit = 0, spend = 0;
+    if (smart) {                                  // IQ 3+: knows trades move prices and taxes cut margins
+      const supB = p.sup.slice(), supS = d.sup.slice(), chunk = Math.max(1, Math.ceil(total / 24));
+      for (let k = 0; k < 24 && space > 0; k++) {
+        let best = null;
+        for (let g = 0; g < NG; g++) {
+          const n = Math.min(chunk, space, Math.floor(Math.max(0, supB[g] - 0.03) * capOf(g)) - buy[g]); if (n <= 0) continue;
+          const pb = priceAt(p, g, supB[g] - n / capOf(g) / 2), ps = priceAt(d, g, supS[g] + n / capOf(g) / 2) * noise[g] * (1 - c.impRate - c.expRate);
+          const m = (ps - pb) * n * wPref(g); if (pb * n > cash || m <= 0) continue;
+          if (!best || m > best.m) best = { g, n, m, pb, real: (ps - pb) * n };
+        }
+        if (!best) break;
+        buy[best.g] += best.n; supB[best.g] -= best.n / capOf(best.g); supS[best.g] += best.n / capOf(best.g);
+        cash -= best.pb * best.n; space -= best.n; profit += best.real; spend += best.pb * best.n;
+      }
+    } else {                                      // IQ 1-2: raw margin per ton, no price impact, ignores taxes
+      const rows = [];
+      for (let g = 0; g < NG; g++) { const m = (priceAt(d, g, d.sup[g]) * noise[g] - quote(p, g)) * wPref(g); if (m > 0) rows.push({ g, m, pb: quote(p, g) }); }
+      rows.sort((a, b) => b.m - a.m);
+      for (const r of rows) {
+        const n = Math.min(space, availTons(p, r.g, c), Math.floor(cash / r.pb)); if (n <= 0) continue;
+        buy[r.g] += n; space -= n; cash -= n * r.pb; profit += n * r.m; spend += n * r.pb; if (space <= 0) break;
+      }
+    }
+    return { buy, profit, spend };
+  };
+
+  const fuelRoom = d => fuelUse(c, p, d) <= c.fuel;
+  const danger = new Set(G.danger.map(x => x.planet));
+  const baseBudget = Math.max(0, c.cash * cashFrac);
   let best = null;
   for (const d of G.planets) {
-    if (d.i === c.loc) continue;
+    if (d.i === c.loc || !fuelRoom(d)) continue;
+    let dangerous = danger.has(d.i) && !(P.ins > 0 && c.int >= 4);
+    if (dangerous && (c.int >= 5 || (c.int === 4 && Math.random() < 0.7) || (c.int === 3 && Math.random() < 0.35))) continue;
+    const ev = evaluate(d, baseBudget);
+    let profit = ev.profit;
+    // passenger income counts for sharper rivals
+    if (smart) { const ref = refFare(c, p, d); profit += passMax(c) * c.ticket * 0.7 * clamp(1.5 - c.ticket / ref, 0, 1); }
     const t = Math.max(6, hours(c, p, d));
-    const fuelOK = fuelUse(c, p, d) <= c.fuel;
-    if (!fuelOK) continue;
-    // greedy allocation
-    const rows = [];
-    for (let g = 0; g < NG; g++) {
-      const buyP = quote(p, g);
-      const sellP = priceAt(d, g, d.sup[g]) * aiNoise(c) * (1 - c.impRate - c.expRate);
-      const m = sellP - buyP;
-      if (m > 0) rows.push({ g, m, buyP, ratio: m / buyP });
-    }
-    rows.sort((x, y) => y.m - x.m);
-    let space = cargoMax(c), cash = Math.max(0, c.cash * (c.style === 'steady' ? 0.6 : 0.78) - fuelUse(c, p, d) * 20), prof = 0;
-    const plan = [];
-    for (const r of rows) {
-      const n = Math.min(space, availTons(p, r.g, c), Math.floor(cash / r.buyP));
-      if (n <= 0) continue;
-      const eff = r.m * (1 - Math.min(0.35, n / capOf(r.g)));
-      plan.push({ g: r.g, n }); space -= n; cash -= n * r.buyP; prof += n * eff;
-      if (space <= 0) break;
-    }
-    const score = prof / Math.sqrt(t);
-    if (!best || score > best.score) best = { d, plan, score, prof };
+    const score = profit / (P.race ? Math.pow(t, 0.8) : Math.sqrt(t));
+    if (!best || score > best.score) best = { d, ev, score, profit };
   }
-  if (best && best.prof > crewN(c) * c.salary * 0.6) {
-    c.dest = best.d.i;
-    for (const r of best.plan) buyGoods(c, p, r.g, r.n);
-  } else {
-    c.dest = pick(G.planets.filter(x => x.i !== c.loc)).i;
+  if (!best) { const options = G.planets.filter(x => x.i !== c.loc); best = { d: pick(options), ev: { buy: Array(NG).fill(0), profit: 0, spend: 0 }, score: 0, profit: 0 }; }
+  const trip = fuelUse(c, p, best.d) * fuelPrice(c, p) + crewN(c) * c.salary;
+  // borrowing: IQ 3+ only borrows when the trade clearly beats the interest; dull rivals borrow whenever they can
+  if (P.debt > 0 && room > 0 && best.ev.spend > 0 && c.cash < shipValue(c) * 3) {
+    const want = Math.min(room * P.debt, Math.max(0, c.cash * 0.6));
+    const ev2 = evaluate(best.d, baseBudget + want);
+    const gainMore = ev2.profit - best.ev.profit;
+    if (want > 0 && (c.int < 3 || gainMore > want * (c.tuRate + 0.05))) { c.tu += want; c.cash += want; best.ev = ev2; best.profit += gainMore; }
   }
+  const idle = c.int >= 4 && best.profit < trip * 1.2;     // IQ 4+ skips trades that don't pay for the trip
+  const rnd = Math.random() < blunder;
+  if (rnd) { best.d = pick(G.planets.filter(x => x.i !== c.loc && fuelUse(c, p, x) <= c.fuel)) || best.d; }
+  if (!idle) for (let g = 0; g < NG; g++) if (best.ev.buy[g] > 0) buyGoods(c, p, g, best.ev.buy[g]);
+  c.dest = best.d.i;
+  c.fill = cargoTons(c) / Math.max(1, cargoMax(c));
   if (c.fuel < fuelUse(c, p, G.planets[c.dest])) {
-    // emergency: shortest trip
     const nearest = G.planets.filter(x => x.i !== c.loc).sort((a, b) => dist(p, a) - dist(p, b))[0];
     c.dest = nearest.i; c.fuel = Math.max(c.fuel, fuelUse(c, p, nearest));
   }
-  if (c.tu > c.tuLimit) c.tuLimit = Math.ceil(c.tu * 1.3 / 1000) * 1000;
-  if (netWorth(c) < -c.tuLimit * 0.5) { c.bankrupt = true; G.aiNews.push(c.name + ' Bankrupts!!!'); c.cargo.fill(0); }
-  // ticket
-  c.ticket = Math.round(refFare(c, p, G.planets[c.dest]) * R(0.6, 0.9));
-  c.insured = Math.random() < 0.3 + c.int * 0.1 && c.cash > insPremium(c) * 3;
-  if (c.insured) c.cash -= insPremium(c);
+  // passengers: price near the revenue optimum for sharp rivals, erratic for dull ones; the host also advertises
+  const ref = refFare(c, p, G.planets[c.dest]);
+  c.ticket = Math.max(10, Math.round(ref * clamp(P.tick + gauss() * 0.35 * (1 - q), 0.35, 1.4)));
+  if (P.ads && c.int >= 2) { const spend = Math.round(adPassCostRef(c) * R(0.5, 1) * (0.4 + 0.6 * q)); if (c.cash > spend * 6) { c.cash -= spend; c.adPass = spend; if (Math.random() < 0.08) G.aiNews.push(c.name + ' hosts a lavish promotion and its flights sell out.'); } }
+  // insurance: appetite from personality, more reliable with IQ, and always when sharp rivals know the route is dangerous
+  const warned = danger.has(c.dest);
+  c.insured = false;
+  const wants = P.ins > 0 && Math.random() < P.ins * (0.35 + 0.65 * q) || (c.int >= 4 && warned && c.int >= 5) || (c.int >= 4 && warned && P.ins > 0);
+  if (wants && c.cash > insPremium(c) * 3) { c.cash -= insPremium(c); c.insured = true; }
 }
 
 // ---------- random encounters ----------

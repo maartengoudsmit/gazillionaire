@@ -74,12 +74,12 @@ const LEVELS = [
 ];
 
 const AI_DEFS = [
-  { name: 'Bassoon Brothers Inc.', style: 'steady' },
-  { name: 'Hapa Hauling Ltd.', style: 'greedy' },
-  { name: 'Peelia Imports Inc.', style: 'steady' },
-  { name: 'Gogg Galactic Freight', style: 'bold' },
-  { name: 'Mono Cheezo & Sons', style: 'bold' },
-  { name: 'Quaso Mutta Trading', style: 'greedy' }
+  { name: 'Bassoon Brothers Inc.', style: 'banker', bio: 'The Banker. Cautious: always insured, saves and invests, rarely borrows, buys ships late.' },
+  { name: 'Hapa Hauling Ltd.', style: 'gambler', bio: 'The Gambler. Chases expensive goods, never insures, gambles on Tilo, and sabotages whoever is in the lead.' },
+  { name: 'Peelia Imports Inc.', style: 'host', bio: 'The Hostess. Bulk goods and passengers: advertises, charges high fares, keeps its seats full.' },
+  { name: 'Gogg Galactic Freight', style: 'expander', bio: 'The Expander. Borrows big and buys ships early. Grows fast and falls hard.' },
+  { name: 'Mono Cheezo & Sons', style: 'speedster', bio: 'The Speedster. Buys engines first and races for the best goods; picks the shortest trips.' },
+  { name: 'Quaso Mutta Trading', style: 'speculator', bio: 'The Speculator. Plays the stock exchanges, riding trends and cashing out on reversals.' }
 ];
 
 const HAZARDS = [

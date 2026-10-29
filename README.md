@@ -20,7 +20,7 @@ Push this folder to a repository, then **Settings → Pages → Deploy from bran
 
 * **Assets** (`assets/`): extracted from the original CD image. Bitmaps → PNG, WAV → MP3, FLC animations → MP4.
 * **Text**: planet histories, news, events, special-encounter and hazard text come from strings in the original VB3 executable, which was carved out of the Wise installer.
-* **Game logic** (`js/game.js`): the original is Visual Basic 3 p-code and its formulas aren't practical to recover, so the rules follow the user manual and the numbers (prices, supply, interest, AI behaviour) are re-tuned. Expect similar play, not identical numbers.
+* **Game logic** (`js/game.js`): the original is Visual Basic 3 p-code and its formulas aren't practical to recover, so the rules follow the user manual and the numbers (prices, supply, interest) are re-tuned and the computer rivals are my own design: six personalities (banker, gambler, hostess, expander, speedster, speculator), with IQ 1-5 changing how well they read prices, manage cash and debt, and heed warnings. Expect similar play, not identical numbers.
 * **UI** (`js/ui.js`): fixed 640×480 stage scaled to the window, Windows 3.1-style controls.
 
 Saves go to the browser's `localStorage` (5 slots, plus auto-save once a slot is used).

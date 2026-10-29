@@ -127,7 +127,7 @@ async function howTo() {
 async function about() {
   await dlg({ img: 'lavamind', title: 'About', w: 560, lines: [
     'Gazillionaire Deluxe was produced, designed and programmed by Naomi Kokubo and Steven Hoffman of LavaMind (c) 1994-1997.',
-    'This is a fan-made web port rebuilt from the original game\'s art, sound and text. Prices and AI behavior are re-created, not copied from the original program, so numbers will differ from the 1996 game.'] });
+    'This is a fan-made web port rebuilt from the original game\'s art, sound and text. Prices are re-created, and the computer rivals are new designs (six personalities whose intelligence changes how they play), so numbers and behaviour will differ from the 1996 game.'] });
 }
 
 function newGameScreen() {
@@ -140,10 +140,11 @@ function newGameScreen() {
   let lvl = 1;
   const lb = LEVELS.map((l, i) => btn(bd, l.name + '<br>' + fmt(l.goal), () => { lvl = i; lb.forEach((b, j) => b.style.outline = j === i ? '2px solid #000080' : 'none'); }, { left: (10 + i * 108) + 'px', top: '92px', width: '102px', height: '40px' }));
   lb[lvl].style.outline = '2px solid #000080';
-  mk(bd, 'div', null, 'Computer opponents (click to cycle intelligence 1-5):', { position: 'absolute', left: '10px', top: '146px', fontWeight: 'bold' });
+  mk(bd, 'div', null, 'Computer opponents (click to cycle intelligence 1-5; hover for profile):', { position: 'absolute', left: '10px', top: '146px', fontWeight: 'bold' });
   const ai = AI_DEFS.map(() => 3);
   AI_DEFS.forEach((a, i) => {
     const b = btn(bd, a.name + ' &mdash; IQ ' + ai[i], () => { ai[i] = ai[i] % 5 + 1; b.innerHTML = a.name + ' &mdash; IQ ' + ai[i]; }, { left: (10 + (i % 2) * 218) + 'px', top: (170 + Math.floor(i / 2) * 32) + 'px', width: '210px', height: '26px' });
+    b.title = a.bio;
   });
   btn(bd, 'Start Game', async () => {
     const name = nm.value.trim() || 'Player 1 Inc.';
@@ -731,7 +732,11 @@ function oppScreen() {
   const t = mk(s.bd, 'div', 'panel', null, { position: 'absolute', left: '0', top: '0', right: '0', height: '330px', overflow: 'auto' });
   function render() {
     let h = '<table class="t"><tr><th>Company</th><th>Ship</th><th class="n">Engine</th><th class="n">Net Worth</th><th>Location</th><th>Intelligence</th></tr>';
-    G.co.forEach(c => { h += '<tr><td>' + c.name + (c.bankrupt ? ' (bankrupt)' : '') + '</td><td>' + SHIPS[c.shipIdx][0] + '</td><td class="n">' + c.engine + '</td><td class="n">' + fmt(netWorth(c)) + '</td><td>' + G.planets[c.loc].id + '</td><td>' + (c.human ? '(you)' : '<span class="b" data-i="' + c.i + '" style="cursor:pointer;color:#00c">- ' + c.int + ' +</span>') + '</td></tr>'; });
+    G.co.forEach(c => {
+      h += '<tr><td>' + c.name + (c.bankrupt ? ' (bankrupt)' : '') + '</td><td>' + SHIPS[c.shipIdx][0] + '</td><td class="n">' + c.engine + '</td><td class="n">' + fmt(netWorth(c)) + '</td><td>' + G.planets[c.loc].id + '</td><td>' + (c.human ? '(you)' : '<span class="b" data-i="' + c.i + '" style="cursor:pointer;color:#00c">- ' + c.int + ' +</span>') + '</td></tr>';
+      const def = AI_DEFS[c.i - 1];
+      if (!c.human && def) h += '<tr><td colspan="6" style="white-space:normal;color:#555;font-size:10px;padding:0 4px 3px 14px;border-bottom:1px solid #ccc">' + def.bio + '</td></tr>';
+    });
     t.innerHTML = h + '</table>';
     t.querySelectorAll('.b').forEach(e => e.onclick = ev => { const c = G.co[e.dataset.i]; const r = e.getBoundingClientRect(); const left = ev.clientX < r.left + r.width / 2; c.int = clamp(c.int + (left ? -1 : 1), 1, 5); render(); });
   }
