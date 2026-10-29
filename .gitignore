@@ -1,0 +1,3 @@
+*.iso
+.claude/
+.DS_Store
